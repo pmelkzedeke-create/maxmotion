@@ -1,0 +1,6 @@
+{
+  "name": "MaxMotion",
+  "description": "Estúdio nativo Android de motion graphics, composição por camadas, curvas Bézier, shaders GLSL e edição de vídeo em tempo real.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

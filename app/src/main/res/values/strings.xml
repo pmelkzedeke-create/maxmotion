@@ -1,0 +1,11 @@
+<resources>
+    <string name="app_name">MaxMotion</string>
+    <string name="hub_title">MaxMotion</string>
+    <string name="hub_subtitle">Estúdio de Motion Graphics &amp; VFX</string>
+    <string name="new_project">Novo Projeto</string>
+    <string name="open_demo">Abrir Projeto Demo</string>
+    <string name="import_json">Importar JSON</string>
+    <string name="export_video">Exportar</string>
+    <string name="undo_action">Desfazer</string>
+    <string name="redo_action">Refazer</string>
+</resources>
