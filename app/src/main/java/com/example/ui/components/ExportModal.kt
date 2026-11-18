@@ -1,19 +1,15 @@
 package com.example.ui.components
 
 import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Code
@@ -40,6 +36,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import com.example.engine.DeliveryPreset
+import com.example.engine.StudioEditOps
 import com.example.render.ExportCodec
 import com.example.render.ExportResolution
 import com.example.render.ExportResult
@@ -56,6 +54,8 @@ import java.util.Locale
 @Composable
 fun ExportDialog(
     durationMs: Long,
+    workAreaInMs: Long = 0L,
+    workAreaOutMs: Long = -1L,
     exportProgress: Float?,
     exportMessage: String?,
     exportResult: ExportResult?,
@@ -63,12 +63,39 @@ fun ExportDialog(
     onCopyProjectJson: () -> Unit,
     onDismiss: () -> Unit
 ) {
+    var preset by remember { mutableStateOf(DeliveryPreset.REELS_1080_60) }
     var resolution by remember { mutableStateOf(ExportResolution.FHD_1080) }
     var fps by remember { mutableIntStateOf(60) }
     var codec by remember { mutableStateOf(ExportCodec.H264) }
-    var bitrate by remember { mutableIntStateOf(14) }
-    val settings = ExportSettings(resolution, fps, codec, bitrate)
-    val estMb = settings.estimateSizeMb(durationMs)
+    var bitrate by remember { mutableIntStateOf(16) }
+    val rangeEnd = if (preset == DeliveryPreset.WORK_AREA) {
+        if (workAreaOutMs < 0L) durationMs else workAreaOutMs
+    } else {
+        -1L
+    }
+    val rangeStart = if (preset == DeliveryPreset.WORK_AREA) workAreaInMs else 0L
+    val settings = ExportSettings(resolution, fps, codec, bitrate, rangeStart, rangeEnd)
+    val exportDuration = if (rangeEnd > rangeStart) rangeEnd - rangeStart else durationMs
+    val estMb = settings.estimateSizeMb(exportDuration)
+    val context = LocalContext.current
+
+    fun shareExported(uri: Uri?, packageName: String?) {
+        if (uri == null) return
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = "video/mp4"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            clipData = ClipData.newRawUri("video", uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        if (!packageName.isNullOrBlank()) {
+            val targeted = Intent(send).setPackage(packageName)
+            val ok = runCatching { context.startActivity(targeted) }.isSuccess
+            if (ok) return
+        }
+        runCatching {
+            context.startActivity(Intent.createChooser(send, "Compartilhar MaxMotion"))
+        }
+    }
 
     AlertDialog(
         onDismissRequest = { if (exportProgress == null) onDismiss() },
@@ -97,12 +124,56 @@ fun ExportDialog(
                                 Spacer(Modifier.width(8.dp))
                                 Text("Vídeo MP4 salvo na Galeria (Movies/MaxMotion)!", style = MaterialTheme.typography.bodyMedium, color = CacheEmerald)
                             }
+                            Spacer(Modifier.height(8.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                                OutlinedButton(
+                                    onClick = { shareExported(exportResult.outputUri, "com.whatsapp") },
+                                    modifier = Modifier.weight(1f).testTag("share_whatsapp_btn")
+                                ) { Text("WhatsApp", style = MaterialTheme.typography.labelSmall) }
+                                OutlinedButton(
+                                    onClick = { shareExported(exportResult.outputUri, "com.instagram.android") },
+                                    modifier = Modifier.weight(1f).testTag("share_reels_btn")
+                                ) { Text("Reels", style = MaterialTheme.typography.labelSmall) }
+                                OutlinedButton(
+                                    onClick = { shareExported(exportResult.outputUri, null) },
+                                    modifier = Modifier.weight(1f).testTag("share_more_btn")
+                                ) { Text("Mais", style = MaterialTheme.typography.labelSmall) }
+                            }
                         }
                         is ExportResult.Error -> {
                             Text("Erro: ${exportResult.message}", style = MaterialTheme.typography.bodyMedium, color = AlertRed)
                         }
                     }
                 } else {
+                    Text("Entrega", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        DeliveryPreset.entries.filter { it != DeliveryPreset.CUSTOM }.chunked(2).forEach { row ->
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                row.forEach { p ->
+                                    FilterChip(
+                                        selected = preset == p,
+                                        onClick = {
+                                            preset = p
+                                            val mapped = StudioEditOps.deliverySettings(p, fps)
+                                            resolution = mapped.resolution
+                                            fps = mapped.fps
+                                            codec = mapped.codec
+                                            bitrate = mapped.bitrateMbps
+                                        },
+                                        label = { Text(p.labelPt, style = MaterialTheme.typography.labelSmall) },
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .testTag("export_preset_${p.name}")
+                                    )
+                                }
+                                if (row.size == 1) Spacer(Modifier.weight(1f))
+                            }
+                        }
+                    }
+
                     Text("Resolução", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         ExportResolution.entries.forEach { res ->

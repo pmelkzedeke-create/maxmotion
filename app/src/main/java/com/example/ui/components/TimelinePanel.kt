@@ -130,6 +130,13 @@ fun TimelinePanel(
     onDuplicateSelectedKeyframes: (Long) -> Unit = {},
     onMoveKeyframeTime: (String, SubTrackTarget, String, Long) -> Unit = { _, _, _, _ -> },
     onReorderLayerToIndex: (String, Int) -> Unit = { _, _ -> },
+    rippleEnabled: Boolean = false,
+    onToggleRipple: () -> Unit = {},
+    onSlip: (Long) -> Unit = {},
+    onSetWorkAreaIn: () -> Unit = {},
+    onSetWorkAreaOut: () -> Unit = {},
+    onClearWorkArea: () -> Unit = {},
+    onTimecodeClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val density = LocalDensity.current
@@ -193,7 +200,8 @@ fun TimelinePanel(
             onTogglePlay = onTogglePlay,
             onSeek = onSeek,
             onZoomChange = onZoomChange,
-            onToggleMagnetic = onToggleMagnetic
+            onToggleMagnetic = onToggleMagnetic,
+            onTimecodeClick = onTimecodeClick
         )
 
         TimelineQuickPrecisionStrip(
@@ -208,7 +216,14 @@ fun TimelinePanel(
             onJumpKeyframe = onJumpKeyframe,
             onOpenSpeedShortcut = onOpenSpeedShortcut,
             onFreezeFrame = onFreezeFrame,
-            onPreCompose = onPreCompose
+            onPreCompose = onPreCompose,
+            rippleEnabled = rippleEnabled,
+            workAreaActive = composition.workAreaOutMs >= 0L,
+            onToggleRipple = onToggleRipple,
+            onSlip = onSlip,
+            onSetWorkAreaIn = onSetWorkAreaIn,
+            onSetWorkAreaOut = onSetWorkAreaOut,
+            onClearWorkArea = onClearWorkArea
         )
 
         MultiKeyframeBatchBar(

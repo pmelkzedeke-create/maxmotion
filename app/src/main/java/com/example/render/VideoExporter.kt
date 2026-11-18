@@ -43,7 +43,9 @@ data class ExportSettings(
     val resolution: ExportResolution = ExportResolution.FHD_1080,
     val fps: Int = 60,
     val codec: ExportCodec = ExportCodec.H264,
-    val bitrateMbps: Int = 14
+    val bitrateMbps: Int = 14,
+    val rangeStartMs: Long = 0L,
+    val rangeEndMs: Long = -1L
 ) {
     fun resolveDimensions(compW: Int, compH: Int): Pair<Int, Int> {
         val ratio = compW.toFloat() / compH.coerceAtLeast(1).toFloat()
@@ -180,7 +182,14 @@ object VideoExporter {
             var muxerStarted = false
             val bufferInfo = MediaCodec.BufferInfo()
 
-            val totalFrames = ((comp.durationMs / 1000.0) * settings.fps).toInt().coerceAtLeast(1)
+            val rangeStart = settings.rangeStartMs.coerceAtLeast(0L)
+            val rangeEnd = if (settings.rangeEndMs > rangeStart) {
+                settings.rangeEndMs.coerceAtMost(comp.durationMs)
+            } else {
+                comp.durationMs
+            }
+            val exportDurationMs = (rangeEnd - rangeStart).coerceAtLeast(200L)
+            val totalFrames = ((exportDurationMs / 1000.0) * settings.fps).toInt().coerceAtLeast(1)
             val frameDurationUs = 1_000_000L / settings.fps
 
             fun drainEncoder(endOfStream: Boolean) {
@@ -217,7 +226,7 @@ object VideoExporter {
             }
 
             for (frameIdx in 0 until totalFrames) {
-                val timeMs = (frameIdx * 1000L) / settings.fps
+                val timeMs = rangeStart + (frameIdx * 1000L) / settings.fps
                 val scene = SceneEvaluator.evaluateScene(document, comp, timeMs)
                 renderer.renderSceneToViewport(document, scene, outW, outH, outW, outH)
 
@@ -242,7 +251,8 @@ object VideoExporter {
                     val layer = audioSource.layer
                     val startOffsetUs = layer.startOffsetMs * 1000L
                     val inUs = layer.inMs * 1000L
-                    val maxOutUs = minOf(comp.durationMs, layer.outMs) * 1000L
+                    val maxOutUs = minOf(rangeEnd, layer.outMs) * 1000L
+                    val rangeStartUs = rangeStart * 1000L
                     ext.seekTo(startOffsetUs, MediaExtractor.SEEK_TO_CLOSEST_SYNC)
 
                     val audioBuf = ByteBuffer.allocate(256 * 1024)
@@ -254,10 +264,10 @@ object VideoExporter {
                         val rawSampleUs = ext.sampleTime
                         val compPtsUs = (rawSampleUs - startOffsetUs) + inUs
                         if (compPtsUs > maxOutUs) break
-                        if (compPtsUs >= inUs) {
+                        if (compPtsUs >= maxOf(inUs, rangeStartUs)) {
                             audioInfo.offset = 0
                             audioInfo.size = sampleSize
-                            audioInfo.presentationTimeUs = compPtsUs
+                            audioInfo.presentationTimeUs = (compPtsUs - rangeStartUs).coerceAtLeast(0L)
                             audioInfo.flags = ext.sampleFlags
                             localMuxer.writeSampleData(audioTrackIndex, audioBuf, audioInfo)
                         }

@@ -28,6 +28,7 @@ class MainActivity : ComponentActivity() {
                 val navController = rememberNavController()
                 val viewModel: MaxMotionViewModel = viewModel()
                 val projects by viewModel.savedProjects.collectAsStateWithLifecycle()
+                val crashSnapshot by viewModel.crashSnapshot.collectAsStateWithLifecycle()
 
                 NavHost(navController = navController, startDestination = "hub") {
                     composable("hub") {
@@ -52,6 +53,18 @@ class MainActivity : ComponentActivity() {
                             onDeleteProject = { viewModel.deleteSavedProject(it) },
                             onImportJson = { raw ->
                                 viewModel.importProjectJson(raw) {
+                                    navController.navigate("editor") { launchSingleTop = true }
+                                }
+                            },
+                            crashSnapshotName = crashSnapshot?.name,
+                            onRestoreCrash = {
+                                viewModel.restoreCrashSnapshot {
+                                    navController.navigate("editor") { launchSingleTop = true }
+                                }
+                            },
+                            onDismissCrash = { viewModel.dismissCrashSnapshot() },
+                            onOpenTemplate = { id ->
+                                viewModel.openOfficialTemplate(id) {
                                     navController.navigate("editor") { launchSingleTop = true }
                                 }
                             }

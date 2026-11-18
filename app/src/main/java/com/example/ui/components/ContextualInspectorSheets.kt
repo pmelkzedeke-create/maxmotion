@@ -56,6 +56,7 @@ import androidx.compose.ui.unit.dp
 import com.example.engine.EvaluatedLayer
 import com.example.engine.SceneEvaluator
 import com.example.model.AspectRatioPreset
+import com.example.model.BrandKit
 import com.example.model.BlendMode
 import com.example.model.CompositionNode
 import com.example.model.EffectType
@@ -98,6 +99,7 @@ fun ContextualInspectorSheet(
     onToggleOrbit: () -> Unit,
     onToggleTrackerTarget: () -> Unit,
     onPickCubeFile: () -> Unit,
+    onPickFont: () -> Unit = {},
     viewModel: MaxMotionViewModel,
     onClose: () -> Unit,
     modifier: Modifier = Modifier
@@ -174,7 +176,7 @@ fun ContextualInspectorSheet(
                 }
                 InspectorTab.VECTOR_TEXT -> {
                     if (layer != null) {
-                        VectorTextInspectorContent(layer, evaluatedLayer, playheadMs, viewModel)
+                        VectorTextInspectorContent(layer, evaluatedLayer, playheadMs, viewModel, onPickFont)
                     }
                 }
                 InspectorTab.ANIMATE -> {
@@ -211,6 +213,9 @@ fun ContextualInspectorSheet(
                 }
                 InspectorTab.ASPECT_BG -> {
                     AspectBgInspectorContent(composition, viewModel)
+                }
+                InspectorTab.BRAND -> {
+                    BrandInspectorContent(viewModel)
                 }
                 else -> Unit
             }
@@ -471,7 +476,8 @@ private fun VectorTextInspectorContent(
     layer: LayerNode,
     ev: EvaluatedLayer?,
     playheadMs: Long,
-    vm: MaxMotionViewModel
+    vm: MaxMotionViewModel,
+    onPickFont: () -> Unit
 ) {
     val localMs = ((playheadMs - layer.inMs) * layer.speedMultiplier).toLong()
     val ts = layer.textSpec
@@ -491,13 +497,20 @@ private fun VectorTextInspectorContent(
         Spacer(Modifier.height(6.dp))
         Text("Fonte & Animador por Faixa", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
-            listOf("space_grotesk" to "Space Grotesk", "plus_jakarta_sans" to "Jakarta Sans", "jetbrains_mono" to "JetBrains Mono").forEach { (key, label) ->
+            com.example.model.StudioFonts.catalog.forEach { font ->
                 FilterChip(
-                    selected = ts.fontFamilyKey == key,
-                    onClick = { vm.updateTextSpec(layer.id) { it.copy(fontFamilyKey = key) } },
-                    label = { Text(label, style = MaterialTheme.typography.labelSmall) }
+                    selected = ts.customFontUri.isNullOrBlank() && ts.fontFamilyKey == font.key,
+                    onClick = { vm.updateTextSpec(layer.id) { it.copy(fontFamilyKey = font.key, customFontUri = null) } },
+                    label = { Text(font.label, style = MaterialTheme.typography.labelSmall) },
+                    modifier = Modifier.testTag("font_chip_${font.key}")
                 )
             }
+            FilterChip(
+                selected = !ts.customFontUri.isNullOrBlank(),
+                onClick = onPickFont,
+                label = { Text("TTF", style = MaterialTheme.typography.labelSmall) },
+                modifier = Modifier.testTag("font_pick_ttf")
+            )
         }
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
             TextRangeMode.entries.forEach { mode ->
@@ -587,7 +600,26 @@ private fun VectorTextInspectorContent(
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun AnimatePresetsContent(layer: LayerNode, vm: MaxMotionViewModel) {
-    Text("Presets Prontos com Curvas Bézier", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+    if (layer.type == LayerType.TEXT && layer.textSpec != null) {
+        Text("Type cinético — um tap", style = MaterialTheme.typography.labelSmall, color = NeonCyan)
+        Spacer(Modifier.height(6.dp))
+        com.example.model.TypePresets.catalog.groupBy { it.category }.forEach { (cat, items) ->
+            Text(cat, style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+            Spacer(Modifier.height(4.dp))
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                items.forEach { preset ->
+                    FilterChip(
+                        selected = false,
+                        onClick = { vm.applyTypePreset(layer.id, preset.id) },
+                        label = { Text(preset.name, style = MaterialTheme.typography.labelSmall) },
+                        modifier = Modifier.testTag("type_preset_${preset.id}")
+                    )
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+        }
+    }
+    Text("Camada (Bézier)", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
     Spacer(Modifier.height(6.dp))
     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         listOf(
@@ -733,5 +765,89 @@ private fun AspectBgInspectorContent(comp: CompositionNode, vm: MaxMotionViewMod
                     .clickable { vm.setCompositionBackground(hex) }
             )
         }
+    }
+}
+
+@Composable
+private fun BrandInspectorContent(vm: MaxMotionViewModel) {
+    val initial = vm.document.value.brand
+    var title by remember(initial.title) { mutableStateOf(initial.title) }
+    var subtitle by remember(initial.subtitle) { mutableStateOf(initial.subtitle) }
+    var primary by remember(initial.primaryHex) { mutableStateOf(initial.primaryHex) }
+    var secondary by remember(initial.secondaryHex) { mutableStateOf(initial.secondaryHex) }
+    var fontKey by remember(initial.fontFamilyKey) { mutableStateOf(initial.fontFamilyKey) }
+    val palettes = listOf(
+        "#00EAFF" to "#8B5CF6",
+        "#F43F5E" to "#111116",
+        "#22C55E" to "#14532D",
+        "#F59E0B" to "#1C1917",
+        "#38BDF8" to "#0F172A",
+        "#A855F7" to "#3B0764"
+    )
+    Text("Trocar marca — título, subtítulo, cor e fonte", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+    Spacer(Modifier.height(6.dp))
+    OutlinedTextField(
+        value = title,
+        onValueChange = { title = it },
+        label = { Text("Título") },
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth().testTag("brand_title_input")
+    )
+    Spacer(Modifier.height(6.dp))
+    OutlinedTextField(
+        value = subtitle,
+        onValueChange = { subtitle = it },
+        label = { Text("Subtítulo") },
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth().testTag("brand_subtitle_input")
+    )
+    Spacer(Modifier.height(8.dp))
+    Text("Paleta", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
+        palettes.forEach { (a, b) ->
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(Color(android.graphics.Color.parseColor(a)))
+                    .border(if (primary == a) 2.dp else 1.dp, NeonCyan, CircleShape)
+                    .clickable { primary = a; secondary = b }
+                    .testTag("brand_palette_${a.removePrefix("#")}")
+            )
+        }
+    }
+    Spacer(Modifier.height(8.dp))
+    Text("Fonte", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
+        listOf(
+            "space_grotesk" to "Grotesk",
+            "plus_jakarta_sans" to "Jakarta",
+            "jetbrains_mono" to "Mono"
+        ).forEach { (key, label) ->
+            FilterChip(
+                selected = fontKey == key,
+                onClick = { fontKey = key },
+                label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+                modifier = Modifier.testTag("brand_font_$key")
+            )
+        }
+    }
+    Spacer(Modifier.height(10.dp))
+    Button(
+        onClick = {
+            vm.applyBrandKit(
+                BrandKit(
+                    title = title.ifBlank { initial.title },
+                    subtitle = subtitle.ifBlank { initial.subtitle },
+                    primaryHex = primary,
+                    secondaryHex = secondary,
+                    fontFamilyKey = fontKey
+                )
+            )
+        },
+        colors = ButtonDefaults.buttonColors(containerColor = NeonCyan, contentColor = OledBlack),
+        modifier = Modifier.fillMaxWidth().testTag("brand_apply_btn")
+    ) {
+        Text("Aplicar marca", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
     }
 }
