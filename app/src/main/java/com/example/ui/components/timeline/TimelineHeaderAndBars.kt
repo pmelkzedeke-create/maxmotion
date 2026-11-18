@@ -127,7 +127,8 @@ fun TimelineTransportBar(
     onTogglePlay: () -> Unit,
     onSeek: (Long) -> Unit,
     onZoomChange: (Float) -> Unit,
-    onToggleMagnetic: () -> Unit
+    onToggleMagnetic: () -> Unit,
+    onTimecodeClick: () -> Unit = {}
 ) {
     val frameStepMs = (1000L / fps.coerceAtLeast(15)).coerceAtLeast(16L)
     val playBtnColor by animateColorAsState(
@@ -156,7 +157,11 @@ fun TimelineTransportBar(
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Bold,
                 color = TextPrimary,
-                modifier = Modifier.testTag("timeline_timecode")
+                modifier = Modifier
+                    .clip(RoundedCornerShape(6.dp))
+                    .clickable(onClick = onTimecodeClick)
+                    .padding(horizontal = 4.dp, vertical = 2.dp)
+                    .testTag("timeline_timecode")
             )
             Text(
                 text = " / ${formatTimelineTimecode(durationMs, fps)}",
@@ -283,7 +288,14 @@ fun TimelineQuickPrecisionStrip(
     onJumpKeyframe: (Int) -> Unit,
     onOpenSpeedShortcut: () -> Unit,
     onFreezeFrame: () -> Unit,
-    onPreCompose: () -> Unit
+    onPreCompose: () -> Unit,
+    rippleEnabled: Boolean = false,
+    workAreaActive: Boolean = false,
+    onToggleRipple: () -> Unit = {},
+    onSlip: (Long) -> Unit = {},
+    onSetWorkAreaIn: () -> Unit = {},
+    onSetWorkAreaOut: () -> Unit = {},
+    onClearWorkArea: () -> Unit = {}
 ) {
     Row(
         modifier = Modifier
@@ -304,6 +316,56 @@ fun TimelineQuickPrecisionStrip(
             tag = "timeline_quick_split_btn",
             onClick = onSplitAtPlayhead
         )
+        QuickStripPill(
+            icon = Icons.Rounded.ContentCut,
+            label = if (rippleEnabled) "Ripple ON" else "Ripple",
+            accent = if (rippleEnabled) NeonCyan else TextPrimary,
+            enabled = true,
+            tag = "timeline_ripple_btn",
+            onClick = onToggleRipple
+        )
+        QuickStripPill(
+            icon = Icons.AutoMirrored.Rounded.KeyboardArrowLeft,
+            label = "Slip −",
+            accent = if (hasSelection) TextPrimary else TextMuted,
+            enabled = hasSelection,
+            tag = "timeline_slip_minus_btn",
+            onClick = { onSlip(-100L) }
+        )
+        QuickStripPill(
+            icon = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+            label = "Slip +",
+            accent = if (hasSelection) TextPrimary else TextMuted,
+            enabled = hasSelection,
+            tag = "timeline_slip_plus_btn",
+            onClick = { onSlip(100L) }
+        )
+        QuickStripPill(
+            icon = Icons.Rounded.BookmarkAdd,
+            label = if (workAreaActive) "B / N ✓" else "B início",
+            accent = if (workAreaActive) NeonCyan else TextPrimary,
+            enabled = true,
+            tag = "timeline_work_area_in_btn",
+            onClick = onSetWorkAreaIn
+        )
+        QuickStripPill(
+            icon = Icons.Rounded.BookmarkAdd,
+            label = "N fim",
+            accent = if (workAreaActive) NeonCyan else TextPrimary,
+            enabled = true,
+            tag = "timeline_work_area_out_btn",
+            onClick = onSetWorkAreaOut
+        )
+        if (workAreaActive) {
+            QuickStripPill(
+                icon = Icons.Rounded.Delete,
+                label = "Limpar área",
+                accent = TextMuted,
+                enabled = true,
+                tag = "timeline_work_area_clear_btn",
+                onClick = onClearWorkArea
+            )
+        }
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
@@ -769,12 +831,5 @@ fun layerTypeIcon(type: LayerType): ImageVector = when (type) {
     LayerType.PRE_COMP -> Icons.Rounded.FolderCopy
 }
 
-fun formatTimelineTimecode(ms: Long, fps: Int): String {
-    val safeFps = fps.coerceAtLeast(1)
-    val clamped = ms.coerceAtLeast(0L)
-    val totalSec = clamped / 1000L
-    val mins = totalSec / 60L
-    val secs = totalSec % 60L
-    val frames = ((clamped % 1000L) * safeFps / 1000L).coerceIn(0L, (safeFps - 1).toLong())
-    return String.format(Locale.US, "%02d:%02d:%02d", mins, secs, frames)
-}
+fun formatTimelineTimecode(ms: Long, fps: Int): String =
+    com.example.engine.StudioEditOps.formatTimecode(ms, fps)

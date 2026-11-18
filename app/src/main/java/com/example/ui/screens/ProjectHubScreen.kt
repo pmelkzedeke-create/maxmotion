@@ -70,6 +70,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.data.ProjectEntity
 import com.example.model.AspectRatioPreset
+import com.example.model.OfficialTemplates
 import com.example.ui.theme.AlertRed
 import com.example.ui.theme.ElectricPurple
 import com.example.ui.theme.NeonCyan
@@ -93,10 +94,15 @@ fun ProjectHubScreen(
     onCreateProject: (String, AspectRatioPreset, Int, Int) -> Unit,
     onDuplicateProject: (String) -> Unit,
     onDeleteProject: (String) -> Unit,
-    onImportJson: (String) -> Unit
+    onImportJson: (String) -> Unit,
+    crashSnapshotName: String? = null,
+    onRestoreCrash: () -> Unit = {},
+    onDismissCrash: () -> Unit = {},
+    onOpenTemplate: (String) -> Unit = {}
 ) {
     var showCreateModal by remember { mutableStateOf(false) }
     var showImportModal by remember { mutableStateOf(false) }
+    var showTemplatesModal by remember { mutableStateOf(false) }
 
     Scaffold(
         containerColor = OledBlack,
@@ -233,6 +239,65 @@ fun ProjectHubScreen(
                             }
                         }
                     }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Surface(
+                        color = StudioCard,
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(42.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .border(0.5.dp, StudioHairline, RoundedCornerShape(14.dp))
+                            .clickable { showTemplatesModal = true }
+                            .testTag("open_templates_btn")
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxSize(),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Rounded.AutoAwesome, null, tint = NeonCyan, modifier = Modifier.size(17.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Templates oficiais (${OfficialTemplates.catalog.size})", style = MaterialTheme.typography.labelMedium, color = TextPrimary)
+                        }
+                    }
+                }
+            }
+
+            if (!crashSnapshotName.isNullOrBlank()) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Surface(
+                    color = StudioCard,
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(0.5.dp, NeonCyan.copy(alpha = 0.4f), RoundedCornerShape(16.dp))
+                        .testTag("crash_restore_banner")
+                ) {
+                    Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            text = "Sessão não salva encontrada",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary
+                        )
+                        Text(
+                            text = crashSnapshotName,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(
+                                onClick = onRestoreCrash,
+                                colors = ButtonDefaults.buttonColors(containerColor = NeonCyan, contentColor = OledBlack),
+                                modifier = Modifier.testTag("restore_crash_btn")
+                            ) { Text("Abrir") }
+                            TextButton(onClick = onDismissCrash, modifier = Modifier.testTag("dismiss_crash_btn")) {
+                                Text("Descartar")
+                            }
+                        }
+                    }
                 }
             }
 
@@ -285,10 +350,11 @@ fun ProjectHubScreen(
         }
     }
 
-    if (showCreateModal || showImportModal) {
+    if (showCreateModal || showImportModal || showTemplatesModal) {
         BackHandler {
             showCreateModal = false
             showImportModal = false
+            showTemplatesModal = false
         }
     }
 
@@ -450,6 +516,76 @@ fun ProjectHubScreen(
                         }) {
                             Text("Importar")
                         }
+                    }
+                }
+            }
+        }
+    }
+
+    AnimatedVisibility(
+        visible = showTemplatesModal,
+        enter = fadeIn() + scaleIn(initialScale = 0.94f),
+        exit = fadeOut() + scaleOut(targetScale = 0.94f)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(OledBlack.copy(alpha = 0.78f))
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null
+                ) { showTemplatesModal = false }
+                .padding(16.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Surface(
+                color = StudioPanel,
+                shape = RoundedCornerShape(22.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .widthIn(max = 480.dp)
+                    .border(1.dp, StudioHairline, RoundedCornerShape(22.dp))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) {}
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("Templates oficiais", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = TextPrimary)
+                    Text("24 looks. Abra e toque em Marca para trocar título e cor.", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                    Spacer(Modifier.height(10.dp))
+                    LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.height(420.dp).testTag("templates_list")
+                    ) {
+                        items(OfficialTemplates.catalog, key = { it.id }) { tpl ->
+                            Surface(
+                                color = StudioCard,
+                                shape = RoundedCornerShape(14.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        showTemplatesModal = false
+                                        onOpenTemplate(tpl.id)
+                                    }
+                                    .testTag("template_card_${tpl.id}")
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(tpl.name, style = MaterialTheme.typography.titleSmall, color = TextPrimary, fontWeight = FontWeight.SemiBold)
+                                        Text("${tpl.category} · ${tpl.durationMs / 1000}s · ${tpl.brand.title}", style = MaterialTheme.typography.labelSmall, color = TextMuted)
+                                    }
+                                    Text(tpl.aspect.label.substringBefore(" "), style = MaterialTheme.typography.labelSmall, color = NeonCyan)
+                                }
+                            }
+                        }
+                    }
+                    TextButton(onClick = { showTemplatesModal = false }, modifier = Modifier.align(Alignment.End)) {
+                        Text("Fechar")
                     }
                 }
             }

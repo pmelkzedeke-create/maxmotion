@@ -30,6 +30,14 @@ class ProjectRepository(
     private val mediaDir: File
         get() = File(context.filesDir, "maxmotion_media").apply { mkdirs() }
 
+    private val crashFile: File
+        get() = File(context.filesDir, "maxmotion_crash_snapshot.json")
+
+    private val versionsRoot: File
+        get() = File(context.filesDir, "maxmotion_versions").apply { mkdirs() }
+
+    private val prefs = context.getSharedPreferences("maxmotion_studio", Context.MODE_PRIVATE)
+
     val projectsFlow: Flow<List<ProjectEntity>> = dao.observeProjects()
     val curvesFlow: Flow<List<SavedCurveEntity>> = dao.observeSavedCurves()
 
@@ -74,7 +82,40 @@ class ProjectRepository(
             jsonFilePath = file.absolutePath
         )
         dao.upsertProject(entity)
+        writeVersionSnapshot(updatedDoc)
         entity
+    }
+
+    fun writeCrashSnapshot(document: ProjectDocument) {
+        runCatching { crashFile.writeText(projectAdapter.toJson(document.copy(updatedAt = System.currentTimeMillis()))) }
+    }
+
+    fun loadCrashSnapshot(): ProjectDocument? {
+        if (!crashFile.exists() || crashFile.length() < 8L) return null
+        return runCatching { projectAdapter.fromJson(crashFile.readText()) }.getOrNull()
+    }
+
+    fun clearCrashSnapshot() {
+        if (crashFile.exists()) crashFile.delete()
+    }
+
+    fun hasUnseenDemoTutorial(): Boolean = !prefs.getBoolean("tutorial_demo_seen", false)
+
+    fun markDemoTutorialSeen() {
+        prefs.edit().putBoolean("tutorial_demo_seen", true).apply()
+    }
+
+    private fun writeVersionSnapshot(document: ProjectDocument) {
+        runCatching {
+            val dir = File(versionsRoot, document.id).apply { mkdirs() }
+            val file = File(dir, "${document.updatedAt}.json")
+            file.writeText(projectAdapter.toJson(document))
+            dir.listFiles()
+                ?.filter { it.extension == "json" }
+                ?.sortedByDescending { it.name }
+                ?.drop(10)
+                ?.forEach { it.delete() }
+        }
     }
 
     suspend fun loadProject(projectId: String): ProjectDocument? = withContext(Dispatchers.IO) {

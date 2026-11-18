@@ -70,7 +70,9 @@ data class EvaluatedLayer(
     val textAnimOffsetY: Float,
     val textAnimScale: Float,
     val textAnimOpacity: Float,
+    val textAnimRotation: Float,
     val textWiggly: Float,
+    val textScramble: Float,
     val textFontSize: Float,
     val textTracking: Float
 )
@@ -333,7 +335,9 @@ object SceneEvaluator {
                 textAnimOffsetY = ts?.let { evaluateProperty(it.animOffsetY, effectTimeMs, comp, audioAmp) } ?: 0f,
                 textAnimScale = ts?.let { evaluateProperty(it.animScale, effectTimeMs, comp, audioAmp) } ?: 1f,
                 textAnimOpacity = ts?.let { evaluateProperty(it.animOpacity, effectTimeMs, comp, audioAmp).coerceIn(0f, 1f) } ?: 1f,
+                textAnimRotation = ts?.let { evaluateProperty(it.animRotation, effectTimeMs, comp, audioAmp) } ?: 0f,
                 textWiggly = ts?.let { evaluateProperty(it.wigglyAmount, effectTimeMs, comp, audioAmp) } ?: 0f,
+                textScramble = ts?.scrambleAmount ?: 0f,
                 textFontSize = ts?.let { evaluateProperty(it.fontSize, effectTimeMs, comp, audioAmp).coerceIn(12f, 400f) } ?: 80f,
                 textTracking = ts?.let { evaluateProperty(it.tracking, effectTimeMs, comp, audioAmp) } ?: 0f
             )

@@ -82,6 +82,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -108,9 +109,13 @@ import com.example.ui.MaxMotionViewModel
 import com.example.ui.PropertyKey
 import com.example.ui.components.CanvasViewport
 import com.example.ui.components.ContextualInspectorSheet
+import com.example.ui.components.DemoTutorialOverlay
+import com.example.ui.components.EditorEmptyCanvasHint
 import com.example.ui.components.ExportDialog
 import com.example.ui.components.GraphEditorOverlay
+import com.example.ui.components.TimecodeEditDialog
 import com.example.ui.components.TimelinePanel
+import com.example.ui.components.timeline.formatTimelineTimecode
 import com.example.ui.theme.AlertRed
 import com.example.ui.theme.ElectricPurple
 import com.example.ui.theme.NeonCyan
@@ -157,9 +162,17 @@ fun EditorScreen(
     val exportMessage by viewModel.exportMessage.collectAsStateWithLifecycle()
     val exportResult by viewModel.exportResult.collectAsStateWithLifecycle()
     val timelineZoom by viewModel.timelineZoom.collectAsStateWithLifecycle()
+    val rippleEdit by viewModel.rippleEdit.collectAsStateWithLifecycle()
+    val showDemoTutorial by viewModel.showDemoTutorial.collectAsStateWithLifecycle()
 
     var showExportDialog by remember { mutableStateOf(false) }
+    var showTimecodeDialog by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
+
+    DisposableEffect(Unit) {
+        viewModel.enterEditorSession()
+        onDispose { viewModel.leaveEditorSession() }
+    }
 
     LaunchedEffect(statusBanner) {
         statusBanner?.let { msg ->
@@ -192,6 +205,12 @@ fun EditorScreen(
         if (uri != null && layerId != null) {
             viewModel.importCubeLut(layerId, uri)
         }
+    }
+
+    val fontPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) viewModel.importCustomFont(uri)
     }
 
     BackHandler {
@@ -321,6 +340,7 @@ fun EditorScreen(
                 // Adaptive Main Area (Portrait Stack vs Landscape Split)
                 if (isWideLandscape) {
                     Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                        Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
                         CanvasViewport(
                             document = document,
                             playheadMs = playheadMs,
@@ -350,8 +370,19 @@ fun EditorScreen(
                             onNudge = { dx, dy, dr -> viewModel.nudgeSelected(dx, dy, dr) },
                             onTwoFingerUndo = { viewModel.undo() },
                             onThreeFingerRedo = { viewModel.redo() },
-                            modifier = Modifier.weight(1f).fillMaxHeight()
+                            modifier = Modifier.fillMaxSize()
                         )
+                        if (comp.layers.isEmpty()) {
+                            EditorEmptyCanvasHint(
+                                onAddShape = { viewModel.addVectorLayer(VectorShapePreset.RECTANGLE) },
+                                onPickMedia = {
+                                    photoPickerLauncher.launch(
+                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)
+                                    )
+                                }
+                            )
+                        }
+                        }
                         Column(modifier = Modifier.width(360.dp).fillMaxHeight()) {
                             TimelinePanel(
                                 composition = comp,
@@ -400,6 +431,13 @@ fun EditorScreen(
                                 onReorderLayerToIndex = { layerId, idx ->
                                     viewModel.reorderLayerToVisualIndex(layerId, idx)
                                 },
+                                rippleEnabled = rippleEdit,
+                                onToggleRipple = { viewModel.toggleRippleEdit() },
+                                onSlip = { viewModel.slipSelected(it) },
+                                onSetWorkAreaIn = { viewModel.setWorkAreaInAtPlayhead() },
+                                onSetWorkAreaOut = { viewModel.setWorkAreaOutAtPlayhead() },
+                                onClearWorkArea = { viewModel.clearWorkArea() },
+                                onTimecodeClick = { showTimecodeDialog = true },
                                 modifier = Modifier.weight(1f)
                             )
                         }
@@ -437,6 +475,16 @@ fun EditorScreen(
                             onThreeFingerRedo = { viewModel.redo() },
                             modifier = Modifier.fillMaxSize()
                         )
+                        if (comp.layers.isEmpty()) {
+                            EditorEmptyCanvasHint(
+                                onAddShape = { viewModel.addVectorLayer(VectorShapePreset.RECTANGLE) },
+                                onPickMedia = {
+                                    photoPickerLauncher.launch(
+                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)
+                                    )
+                                }
+                            )
+                        }
                     }
 
                     AnimatedVisibility(
@@ -480,6 +528,7 @@ fun EditorScreen(
                                 onToggleOrbit = { viewModel.toggleOrbitMode() },
                                 onToggleTrackerTarget = { viewModel.toggleTrackerTargetMode() },
                                 onPickCubeFile = { cubePickerLauncher.launch(arrayOf("*/*")) },
+                                onPickFont = { fontPickerLauncher.launch(arrayOf("*/*")) },
                                 viewModel = viewModel,
                                 onClose = { viewModel.openInspector(null) }
                             )
@@ -533,6 +582,13 @@ fun EditorScreen(
                         onReorderLayerToIndex = { layerId, idx ->
                             viewModel.reorderLayerToVisualIndex(layerId, idx)
                         },
+                        rippleEnabled = rippleEdit,
+                        onToggleRipple = { viewModel.toggleRippleEdit() },
+                        onSlip = { viewModel.slipSelected(it) },
+                        onSetWorkAreaIn = { viewModel.setWorkAreaInAtPlayhead() },
+                        onSetWorkAreaOut = { viewModel.setWorkAreaOutAtPlayhead() },
+                        onClearWorkArea = { viewModel.clearWorkArea() },
+                        onTimecodeClick = { showTimecodeDialog = true },
                         modifier = Modifier.weight(0.46f)
                     )
                 }
@@ -570,6 +626,8 @@ fun EditorScreen(
     if (showExportDialog) {
         ExportDialog(
             durationMs = comp.durationMs,
+            workAreaInMs = comp.workAreaInMs,
+            workAreaOutMs = comp.workAreaOutMs,
             exportProgress = exportProgress,
             exportMessage = exportMessage,
             exportResult = exportResult,
@@ -585,6 +643,21 @@ fun EditorScreen(
                 showExportDialog = false
             }
         )
+    }
+
+    if (showTimecodeDialog) {
+        TimecodeEditDialog(
+            currentLabel = formatTimelineTimecode(playheadMs, comp.fps),
+            onConfirm = { raw ->
+                viewModel.seekToTimecode(raw)
+                showTimecodeDialog = false
+            },
+            onDismiss = { showTimecodeDialog = false }
+        )
+    }
+
+    if (showDemoTutorial) {
+        DemoTutorialOverlay(onDismiss = { viewModel.dismissDemoTutorial() })
     }
 }
 
@@ -650,8 +723,20 @@ private fun ContextualBottomDock(
                         tag = "dock_aspect",
                         onClick = { onOpenTab(InspectorTab.ASPECT_BG) }
                     )
+                    DockActionItem(
+                        Icons.Rounded.Palette, "Marca",
+                        active = activeInspector == InspectorTab.BRAND,
+                        tag = "dock_brand",
+                        onClick = { onOpenTab(InspectorTab.BRAND) }
+                    )
                 } else {
                     DockActionItem(Icons.AutoMirrored.Rounded.ArrowBack, "Voltar", tag = "dock_deselect", onClick = onDeselect)
+                    DockActionItem(
+                        Icons.Rounded.Palette, "Marca",
+                        active = activeInspector == InspectorTab.BRAND,
+                        tag = "dock_brand",
+                        onClick = { onOpenTab(InspectorTab.BRAND) }
+                    )
                     DockActionItem(
                         Icons.Rounded.Tune, "Editar",
                         active = activeInspector == InspectorTab.TRANSFORM,

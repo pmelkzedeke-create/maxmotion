@@ -21,9 +21,13 @@ import com.example.engine.MotionTracker2D
 import com.example.engine.OfflineCaptionGenerator
 import com.example.engine.SceneEvaluator
 import com.example.engine.SpeedRampEvaluator
+import com.example.engine.StudioEditOps
 import com.example.engine.UndoRedoManager
 import com.example.model.AnimatableProperty
 import com.example.model.AspectRatioPreset
+import com.example.model.BrandKit
+import com.example.model.OfficialTemplates
+import com.example.model.TypePresets
 import com.example.model.AssetItem
 import com.example.model.AssetType
 import com.example.model.AudioSpec
@@ -83,6 +87,7 @@ enum class InspectorTab(val labelPt: String) {
     EXPRESSION("Expressão"),
     AUDIO("Áudio"),
     ASPECT_BG("Proporção"),
+    BRAND("Marca"),
     EXPORT("Exportar")
 }
 
@@ -200,20 +205,58 @@ class MaxMotionViewModel(application: Application) : AndroidViewModel(applicatio
     private val _timelineZoom = MutableStateFlow(1.0f)
     val timelineZoom: StateFlow<Float> = _timelineZoom.asStateFlow()
 
+    private val _rippleEdit = MutableStateFlow(false)
+    val rippleEdit: StateFlow<Boolean> = _rippleEdit.asStateFlow()
+
+    private val _crashSnapshot = MutableStateFlow<ProjectDocument?>(null)
+    val crashSnapshot: StateFlow<ProjectDocument?> = _crashSnapshot.asStateFlow()
+
+    private val _showDemoTutorial = MutableStateFlow(false)
+    val showDemoTutorial: StateFlow<Boolean> = _showDemoTutorial.asStateFlow()
+
     private var playJob: Job? = null
     private var autoSaveJob: Job? = null
+    private var periodicSaveJob: Job? = null
     private var dragSnapshotBeforeGesture: ProjectDocument? = null
+    private var editorSessionActive = false
 
     init {
         viewModelScope.launch {
             repository.ensureSeeded()
+            _crashSnapshot.value = repository.loadCrashSnapshot()
             refreshSceneEvaluation()
+        }
+        periodicSaveJob = viewModelScope.launch {
+            while (isActive) {
+                delay(15_000L)
+                if (editorSessionActive) {
+                    runCatching { repository.writeCrashSnapshot(_document.value) }
+                }
+            }
         }
     }
 
     override fun onCleared() {
         super.onCleared()
+        periodicSaveJob?.cancel()
+        autoSaveJob?.cancel()
+        playJob?.cancel()
         audioPreviewPlayer.releaseAll()
+        if (editorSessionActive) {
+            runCatching { repository.writeCrashSnapshot(_document.value) }
+        }
+    }
+
+    fun enterEditorSession() {
+        editorSessionActive = true
+    }
+
+    fun leaveEditorSession() {
+        editorSessionActive = false
+        viewModelScope.launch {
+            val saved = runCatching { repository.saveProject(_document.value) }.isSuccess
+            if (saved) repository.clearCrashSnapshot()
+        }
     }
 
     fun clearStatusBanner() {
@@ -252,7 +295,56 @@ class MaxMotionViewModel(application: Application) : AndroidViewModel(applicatio
         syncUndoFlags()
         refreshSceneEvaluation()
         viewModelScope.launch { repository.saveProject(demo) }
+        _showDemoTutorial.value = repository.hasUnseenDemoTutorial()
         onLoaded()
+    }
+
+    fun dismissDemoTutorial() {
+        repository.markDemoTutorialSeen()
+        _showDemoTutorial.value = false
+    }
+
+    fun restoreCrashSnapshot(onLoaded: () -> Unit = {}) {
+        val snap = _crashSnapshot.value ?: repository.loadCrashSnapshot() ?: return
+        undoRedo.clear()
+        _document.value = snap
+        _playheadMs.value = 0L
+        _selectedLayerIds.value = emptySet()
+        _activeInspector.value = null
+        _crashSnapshot.value = null
+        repository.clearCrashSnapshot()
+        syncUndoFlags()
+        refreshSceneEvaluation()
+        viewModelScope.launch { repository.saveProject(snap) }
+        postBanner("Restauramos ${snap.name}")
+        onLoaded()
+    }
+
+    fun dismissCrashSnapshot() {
+        repository.clearCrashSnapshot()
+        _crashSnapshot.value = null
+    }
+
+    fun openOfficialTemplate(templateId: String, onOpened: () -> Unit = {}) {
+        viewModelScope.launch {
+            val doc = OfficialTemplates.build(templateId)
+            repository.saveProject(doc)
+            undoRedo.clear()
+            _document.value = doc
+            _playheadMs.value = 0L
+            _selectedLayerIds.value = setOfNotNull(doc.activeComposition.layers.firstOrNull { it.essentialRole == com.example.model.EssentialRole.TITLE }?.id)
+            _activeInspector.value = InspectorTab.BRAND
+            syncUndoFlags()
+            refreshSceneEvaluation()
+            postBanner("Template “${doc.name}” — troque a marca")
+            onOpened()
+        }
+    }
+
+    fun applyBrandKit(brand: BrandKit) {
+        val next = OfficialTemplates.applyBrand(_document.value, brand)
+        applyMutation("Trocar marca") { next }
+        postBanner("Marca aplicada em ${next.activeComposition.layers.count { it.essentialRole != com.example.model.EssentialRole.NONE }} camadas")
     }
 
     fun createNewProject(name: String, aspect: AspectRatioPreset, fps: Int, durationSec: Int, onCreated: () -> Unit) {
@@ -329,9 +421,8 @@ class MaxMotionViewModel(application: Application) : AndroidViewModel(applicatio
                 lastTick = now
                 val doc = _document.value
                 val comp = doc.activeComposition
-                val dur = comp.durationMs.coerceAtLeast(500L)
                 val next = _playheadMs.value + dtMs
-                val wrapped = if (next >= dur) 0L else next
+                val wrapped = StudioEditOps.wrapPlayhead(next, comp, loopWorkArea = true)
                 _playheadMs.value = wrapped
                 audioPreviewPlayer.syncPlayback(true, wrapped, comp, doc.assets)
                 refreshSceneEvaluation()
@@ -1184,8 +1275,57 @@ class MaxMotionViewModel(application: Application) : AndroidViewModel(applicatio
     fun updateLayerBounds(layerId: String, inMs: Long, outMs: Long, recordUndo: Boolean = false) {
         val dur = _document.value.activeComposition.durationMs
         val clampedIn = inMs.coerceIn(0L, dur - 200L)
-        val clampedOut = outMs.coerceIn(clampedIn + 200L, dur)
-        updateLayer(layerId, "Aparar Clipe", recordUndo) { it.copy(inMs = clampedIn, outMs = clampedOut) }
+        val clampedOut = outMs.coerceAtLeast(clampedIn + 200L)
+        if (_rippleEdit.value) {
+            updateActiveComposition("Ripple", recordUndo) { comp ->
+                StudioEditOps.rippleTrim(comp, layerId, clampedIn, clampedOut)
+            }
+        } else {
+            val hardOut = clampedOut.coerceAtMost(dur)
+            updateLayer(layerId, "Aparar Clipe", recordUndo) { it.copy(inMs = clampedIn, outMs = hardOut) }
+        }
+    }
+
+    fun toggleRippleEdit() {
+        _rippleEdit.value = !_rippleEdit.value
+        postBanner(if (_rippleEdit.value) "Ripple ligado — aparar empurra o resto" else "Ripple desligado")
+    }
+
+    fun slipSelected(deltaMs: Long) {
+        val layer = getSelectedLayer() ?: return
+        val assetDur = _document.value.assets.firstOrNull { it.id == layer.assetId }?.durationMs
+            ?: (layer.outMs - layer.inMs + layer.startOffsetMs + 4_000L)
+        val slipped = StudioEditOps.slipClip(layer, deltaMs, assetDur)
+        if (slipped === layer) {
+            postBanner("Slip no limite da mídia")
+            return
+        }
+        updateLayer(layer.id, "Slip") { slipped }
+    }
+
+    fun setWorkAreaInAtPlayhead() {
+        updateActiveComposition("Área B") { StudioEditOps.setWorkAreaIn(it, _playheadMs.value) }
+        postBanner("Início da área de trabalho")
+    }
+
+    fun setWorkAreaOutAtPlayhead() {
+        updateActiveComposition("Área N") { StudioEditOps.setWorkAreaOut(it, _playheadMs.value) }
+        postBanner("Fim da área de trabalho")
+    }
+
+    fun clearWorkArea() {
+        updateActiveComposition("Limpar área") { StudioEditOps.clearWorkArea(it) }
+        postBanner("Área de trabalho = composição inteira")
+    }
+
+    fun seekToTimecode(raw: String) {
+        val fps = _document.value.activeComposition.fps
+        val parsed = StudioEditOps.parseTimecode(raw, fps)
+        if (parsed == null) {
+            postBanner("Timecode inválido. Use mm:ss:ff")
+            return
+        }
+        seekTo(parsed)
     }
 
     fun setBlendMode(layerId: String, mode: BlendMode) {
@@ -1333,6 +1473,36 @@ class MaxMotionViewModel(application: Application) : AndroidViewModel(applicatio
             }
         }
         postBanner("Animação aplicada!")
+    }
+
+    fun applyTypePreset(layerId: String, presetId: String) {
+        val layer = _document.value.activeComposition.layers.firstOrNull { it.id == layerId } ?: return
+        if (layer.type != LayerType.TEXT || layer.textSpec == null) {
+            postBanner("Presets de type pedem uma camada de texto")
+            return
+        }
+        val next = TypePresets.apply(layer, presetId)
+        if (next === layer) return
+        updateLayer(layerId, "Preset de type") { next }
+        _playheadMs.value = layer.inMs
+        postBanner("Type: ${TypePresets.info(presetId)?.name ?: presetId}")
+    }
+
+    fun importCustomFont(uri: Uri) {
+        val layerId = primaryLayerId ?: return
+        val current = _document.value.activeComposition.layers.firstOrNull { it.id == layerId }
+        if (current?.type != LayerType.TEXT) {
+            postBanner("Selecione um texto para aplicar a fonte")
+            return
+        }
+        viewModelScope.launch {
+            val local = repository.copyMediaToLocalStorage(uri, "font", "ttf")
+            updateLayer(layerId, "Fonte TTF") { l ->
+                val ts = l.textSpec ?: return@updateLayer l
+                l.copy(textSpec = ts.copy(customFontUri = local, fontFamilyKey = com.example.model.StudioFonts.CUSTOM_KEY))
+            }
+            postBanner("Fonte TTF aplicada na camada")
+        }
     }
 
     fun setCompositionAspect(preset: AspectRatioPreset) {

@@ -44,6 +44,7 @@ object DemoProjectFactory {
             zIndex = 1,
             parentId = nullRigId,
             blendMode = BlendMode.ADD,
+            essentialRole = EssentialRole.ACCENT,
             transform = TransformSpec(
                 posX = AnimatableProperty(0f),
                 posY = AnimatableProperty(-60f),
@@ -91,6 +92,7 @@ object DemoProjectFactory {
             zIndex = 2,
             parentId = nullRigId,
             is3D = true,
+            essentialRole = EssentialRole.LOGO,
             transform = TransformSpec(
                 posX = AnimatableProperty(0f),
                 posY = AnimatableProperty(-60f),
@@ -155,6 +157,7 @@ object DemoProjectFactory {
             outMs = 8000L,
             zIndex = 3,
             parentId = nullRigId,
+            essentialRole = EssentialRole.TITLE,
             transform = TransformSpec(
                 posX = AnimatableProperty(0f),
                 posY = AnimatableProperty(280f),
@@ -197,6 +200,7 @@ object DemoProjectFactory {
             inMs = 700L,
             outMs = 8000L,
             zIndex = 4,
+            essentialRole = EssentialRole.SUBTITLE,
             transform = TransformSpec(
                 posX = AnimatableProperty(0f),
                 posY = AnimatableProperty(390f),
@@ -264,7 +268,8 @@ object DemoProjectFactory {
             id = "demo_neon_kinetic",
             name = "Intro Cinética Neon",
             compositions = listOf(mainComp),
-            activeCompositionId = mainComp.id
+            activeCompositionId = mainComp.id,
+            brand = BrandKit("MAXMOTION", "MOTION GRAPHICS • SHADERS • CURVAS")
         )
     }
 

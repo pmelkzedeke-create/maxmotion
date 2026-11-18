@@ -270,7 +270,12 @@ class LayerRasterizer(private val context: Context) {
             for (unit in units) {
                 val uWidth = textPaint.measureText(unit)
                 val normPos = (globalIdx.toFloat() / totalUnits.toFloat()).coerceIn(0f, 1f)
-                val inRange = normPos in ev.textRangeStart..ev.textRangeEnd
+                val shifted = ((normPos - ev.textRangeOffset) % 1f + 1f) % 1f
+                val inRange = when {
+                    ev.textRangeEnd <= ev.textRangeStart + 0.0001f -> false
+                    ev.textRangeEnd >= 0.999f -> shifted >= ev.textRangeStart
+                    else -> shifted >= ev.textRangeStart && shifted < ev.textRangeEnd
+                }
                 val selFactor = if (inRange) 1f else 0f
 
                 val wigX = if (ev.textWiggly > 0.1f && inRange) {
@@ -282,18 +287,21 @@ class LayerRasterizer(private val context: Context) {
 
                 val charScale = 1f + (ev.textAnimScale - 1f) * selFactor
                 val charOffsetY = ev.textAnimOffsetY * (1f - selFactor)
+                val charRot = ev.textAnimRotation * (1f - selFactor)
                 val charAlpha = ((if (inRange) 1f else ev.textAnimOpacity) * 255f).toInt().coerceIn(0, 255)
+                val drawUnit = if (!inRange && ev.textScramble > 0.1f) scrambleUnit(unit, globalIdx, ev.localTimeMs) else unit
 
                 textPaint.alpha = charAlpha
                 strokePaint?.alpha = charAlpha
 
                 canvas.save()
                 canvas.translate(cursorX + uWidth / 2f + wigX, yPos + charOffsetY + wigY)
+                if (charRot != 0f) canvas.rotate(charRot)
                 canvas.scale(charScale, charScale)
                 if (strokePaint != null) {
-                    canvas.drawText(unit, -uWidth / 2f, 0f, strokePaint)
+                    canvas.drawText(drawUnit, -uWidth / 2f, 0f, strokePaint)
                 }
-                canvas.drawText(unit, -uWidth / 2f, 0f, textPaint)
+                canvas.drawText(drawUnit, -uWidth / 2f, 0f, textPaint)
                 canvas.restore()
 
                 cursorX += uWidth
@@ -395,14 +403,42 @@ class LayerRasterizer(private val context: Context) {
             }
         }
         fontCache[key]?.let { return it }
-        val resId = when (key) {
+        val bundled = when (key) {
             "jetbrains_mono" -> R.font.jetbrains_mono
             "plus_jakarta_sans" -> R.font.plus_jakarta_sans
-            else -> R.font.space_grotesk
+            "space_grotesk" -> R.font.space_grotesk
+            else -> null
         }
-        val tf = runCatching { ResourcesCompat.getFont(context, resId) }.getOrNull() ?: Typeface.DEFAULT_BOLD
+        if (bundled != null) {
+            val tf = runCatching { ResourcesCompat.getFont(context, bundled) }.getOrNull()
+            if (tf != null) {
+                fontCache[key] = tf
+                return tf
+            }
+        }
+        val font = com.example.model.StudioFonts.info(key)
+        val family = font?.androidFamily
+        val style = if (font?.bold == true) Typeface.BOLD else Typeface.NORMAL
+        val tf = if (!family.isNullOrBlank()) {
+            Typeface.create(family, style) ?: Typeface.DEFAULT
+        } else {
+            runCatching { ResourcesCompat.getFont(context, R.font.space_grotesk) }.getOrNull()
+                ?: Typeface.DEFAULT_BOLD
+        }
         fontCache[key] = tf
         return tf
+    }
+
+    private fun scrambleUnit(unit: String, index: Int, timeMs: Long): String {
+        if (unit.isBlank()) return unit
+        val glyphs = "ABCDEFGHJKLMNPQRSTUVWXYZ0123456789#$%"
+        val seed = (timeMs / 42L + index * 13L).toInt()
+        return buildString(unit.length) {
+            unit.forEachIndexed { i, ch ->
+                if (ch.isWhitespace()) append(ch)
+                else append(glyphs[kotlin.math.abs(seed + i * 7 + ch.code) % glyphs.length])
+            }
+        }
     }
 
     fun parseColorSafe(hex: String, fallback: Int): Int {

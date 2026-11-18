@@ -12,7 +12,8 @@ data class ProjectDocument(
     val updatedAt: Long = System.currentTimeMillis(),
     val activeCompositionId: String = "comp_main",
     val assets: List<AssetItem> = emptyList(),
-    val compositions: List<CompositionNode> = listOf(CompositionNode())
+    val compositions: List<CompositionNode> = listOf(CompositionNode()),
+    val brand: BrandKit = BrandKit()
 ) {
     val activeComposition: CompositionNode
         get() = compositions.firstOrNull { it.id == activeCompositionId } ?: compositions.firstOrNull() ?: CompositionNode()
@@ -46,6 +47,8 @@ data class CompositionNode(
     val backgroundColorHex: String = "#0B0B0E",
     val activeCameraId: String? = null,
     val beatMarkersMs: List<Long> = emptyList(),
+    val workAreaInMs: Long = 0L,
+    val workAreaOutMs: Long = -1L,
     val layers: List<LayerNode> = emptyList()
 )
 
@@ -214,7 +217,8 @@ data class TextSpec(
     val animScale: AnimatableProperty = AnimatableProperty(1f),
     val animRotation: AnimatableProperty = AnimatableProperty(0f),
     val animOpacity: AnimatableProperty = AnimatableProperty(1f),
-    val wigglyAmount: AnimatableProperty = AnimatableProperty(0f)
+    val wigglyAmount: AnimatableProperty = AnimatableProperty(0f),
+    val scrambleAmount: Float = 0f
 )
 
 enum class MaskMode(val labelPt: String) {
@@ -467,7 +471,26 @@ data class LayerNode(
     val speedMultiplier: Float = 1.0f,
     val speedRamp: AnimatableProperty? = null,
     val masks: List<MaskSpec> = emptyList(),
-    val effects: List<EffectNode> = emptyList()
+    val effects: List<EffectNode> = emptyList(),
+    val essentialRole: EssentialRole = EssentialRole.NONE
+)
+
+enum class EssentialRole(val labelPt: String) {
+    NONE("—"),
+    TITLE("Título"),
+    SUBTITLE("Subtítulo"),
+    LOGO("Logo"),
+    ACCENT("Acento"),
+    BACKGROUND("Fundo")
+}
+
+@JsonClass(generateAdapter = true)
+data class BrandKit(
+    val title: String = "MAXMOTION",
+    val subtitle: String = "MOTION GRAPHICS",
+    val primaryHex: String = "#00E5FF",
+    val secondaryHex: String = "#8B5CF6",
+    val fontFamilyKey: String = "space_grotesk"
 )
 
 enum class PreviewResolution(val label: String, val scale: Float) {
